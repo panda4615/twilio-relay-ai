@@ -1,0 +1,17 @@
+{
+  "name": "twilio-elevenlabs-relay",
+  "version": "1.0.0",
+  "description": "Bridge between Twilio Voice and ElevenLabs Realtime API",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "body-parser": "^1.20.2",
+    "ws": "^8.17.1",
+    "twilio": "^4.22.0",
+    "node-fetch": "^3.3.2"
+  }
+}
