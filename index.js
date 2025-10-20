@@ -1,6 +1,6 @@
 import express from "express";
 import bodyParser from "body-parser";
-import WebSocket from "ws";
+import { WebSocketServer } from "ws";
 import twilio from "twilio";
 
 const app = express();
@@ -21,7 +21,7 @@ const server = app.listen(process.env.PORT || 3000, () => {
   console.log("Relay running on port", process.env.PORT || 3000);
 });
 
-const wss = new WebSocket.Server({ noServer: true });
+const wss = new WebSocketServer({ noServer: true });
 server.on("upgrade", (req, socket, head) => {
   if (req.url === "/twilio-bridge") {
     wss.handleUpgrade(req, socket, head, (ws) => {
