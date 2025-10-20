@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: twilio-relay
+    env: node
+    plan: free
+    buildCommand: "npm install"
+    startCommand: "npm start"
+    envVars:
+      - key: ELEVEN_API_KEY
+        sync: false
+      - key: DOMAIN
+        sync: false
