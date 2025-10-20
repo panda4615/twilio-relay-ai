@@ -2,38 +2,42 @@ import express from "express";
 import bodyParser from "body-parser";
 import { WebSocketServer } from "ws";
 import twilio from "twilio";
+import fetch from "node-fetch";
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 
-// Twilio webhook
+// Twilio webhook endpoint
 app.post("/inbound", async (req, res) => {
   const twiml = new twilio.twiml.VoiceResponse();
   const connect = twiml.connect();
-  connect.stream({ url: `wss://${process.env.DOMAIN}/twilio-bridge` });
+  connect.stream({
+    url: `wss://${process.env.DOMAIN}/twilio-bridge`,
+  });
 
   res.type("text/xml");
   res.send(twiml.toString());
 });
 
-// WebSocket bridge: Twilio <-> ElevenLabs
-const server = app.listen(process.env.PORT || 3000, () => {
-  console.log("Relay running on port", process.env.PORT || 3000);
+// Start HTTP server for Render
+const PORT = process.env.PORT || 3000;
+const server = app.listen(PORT, () => {
+  console.log(`✅ Twilio relay running on port ${PORT}`);
 });
 
+// WebSocket relay between Twilio <-> ElevenLabs
 const wss = new WebSocketServer({ noServer: true });
+
 server.on("upgrade", (req, socket, head) => {
   if (req.url === "/twilio-bridge") {
     wss.handleUpgrade(req, socket, head, (ws) => {
-      const eleven = new WebSocket(
-        "wss://api.elevenlabs.io/v1/realtime?model_id=eleven_monolingual_v1",
-        { headers: { "xi-api-key": process.env.ELEVEN_API_KEY } }
-      );
-
-      ws.on("message", (msg) => eleven.send(msg));
-      eleven.on("message", (data) => ws.send(data));
-      eleven.on("close", () => ws.close());
-      ws.on("close", () => eleven.close());
+      console.log("🔗 Twilio connected to WebSocket bridge");
+      ws.on("message", (msg) => {
+        // TODO: Forward to ElevenLabs stream later
+      });
+      ws.on("close", () => console.log("❌ Twilio WebSocket closed"));
     });
+  } else {
+    socket.destroy();
   }
 });
