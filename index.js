@@ -9,18 +9,18 @@ const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 
 const PORT = process.env.PORT || 3000;
-const TMP_PATH = "/tmp"; // Render's writable temp folder
+const TMP_PATH = "/tmp"; // Render's temp directory
 
-// === HANDLE INBOUND CALL ===
+// === INBOUND CALL HANDLER ===
 app.post("/inbound", async (req, res) => {
   console.log("🔔 Incoming call received");
 
   const twiml = new twilio.twiml.VoiceResponse();
   const text =
-    "Hola! Bienvenido a Elite Car Service. How can we assist you today?";
+    "Hola, this is Elite Car Service. How can we help you today?";
 
   try {
-    // === request audio from ElevenLabs ===
+    // === get audio from ElevenLabs ===
     const ttsRes = await fetch(
       `https://api.elevenlabs.io/v1/text-to-speech/${process.env.ELEVEN_VOICE_ID}?model_id=eleven_multilingual_v2`,
       {
@@ -46,20 +46,18 @@ app.post("/inbound", async (req, res) => {
       return res.send(twiml.toString());
     }
 
-    // === save MP3 to temporary file ===
+    // === save mp3 locally ===
     const audioBuffer = Buffer.from(await ttsRes.arrayBuffer());
     const filename = `voice_${Date.now()}.mp3`;
     const filePath = path.join(TMP_PATH, filename);
     fs.writeFileSync(filePath, audioBuffer);
-
-    // === host the file publicly ===
     const fileUrl = `${req.protocol}://${req.get("host")}/audio/${filename}`;
 
-    // === play the file ===
+    // === play greeting ===
     twiml.play(fileUrl);
     console.log("✅ Audio generated and hosted at:", fileUrl);
 
-    // === keep line open and listen ===
+    // === now gather speech input ===
     twiml.gather({
       input: "speech dtmf",
       timeout: 10,
@@ -68,7 +66,6 @@ app.post("/inbound", async (req, res) => {
     });
     twiml.say("I'm listening. You can say something or press a number.");
 
-    // === return TwiML ===
     res.type("text/xml");
     res.send(twiml.toString());
   } catch (error) {
@@ -80,11 +77,16 @@ app.post("/inbound", async (req, res) => {
   }
 });
 
-// === HANDLE INPUT ===
+// === USER INPUT HANDLER ===
 app.post("/process_input", (req, res) => {
-  console.log("🎧 Input received from caller");
+  const speech = req.body.SpeechResult || "nothing detected";
+  console.log("🎧 User said:", speech);
+
   const twiml = new twilio.twiml.VoiceResponse();
-  twiml.say("Thanks! We received your input. Goodbye.");
+  twiml.say(
+    `You said: ${speech}. Thank you for calling Elite Car Service. Goodbye.`
+  );
+
   res.type("text/xml");
   res.send(twiml.toString());
 });
@@ -100,6 +102,4 @@ app.get("/audio/:file", (req, res) => {
   }
 });
 
-app.listen(PORT, () =>
-  console.log(`✅ Server running on port ${PORT}`)
-);
+app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
