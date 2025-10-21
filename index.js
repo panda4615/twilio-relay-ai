@@ -18,10 +18,9 @@ app.use(bodyParser.json());
 app.use("/audio", express.static("/tmp"));
 
 app.get("/", (req, res) => {
-  res.send("✅ Twilio Relay + ElevenLabs voice server is live");
+  res.send("✅ Twilio Relay + ElevenLabs voice server is active");
 });
 
-// first greeting
 app.post("/inbound", (req, res) => {
   console.log("🔔 Incoming call received");
 
@@ -32,14 +31,13 @@ app.post("/inbound", (req, res) => {
     input: "speech",
     action: "/process_input",
     method: "POST",
-    speechTimeout: "auto",
+    speechTimeout: "auto"
   });
 
   res.type("text/xml");
   res.send(twiml.toString());
 });
 
-// handle user speech, respond, and continue loop
 app.post("/process_input", async (req, res) => {
   const speech = req.body.SpeechResult || "nothing detected";
   console.log("🎧 User said:", speech);
@@ -48,19 +46,24 @@ app.post("/process_input", async (req, res) => {
 
   try {
     const ttsRes = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${process.env.ELEVEN_VOICE_ID}?model_id=eleven_multilingual_v2`,
+      `https://api.elevenlabs.io/v1/text-to-speech/${process.env.ELEVEN_VOICE_ID}?model_id=eleven_turbo_v2`,
       {
         method: "POST",
         headers: {
           "xi-api-key": process.env.ELEVEN_API_KEY,
           "Content-Type": "application/json",
-          Accept: "audio/mpeg",
+          Accept: "audio/mpeg"
         },
         body: JSON.stringify({
           text: reply,
-          model_id: "eleven_multilingual_v2",
-          voice_settings: { stability: 0.5, similarity_boost: 0.7 },
-        }),
+          model_id: "eleven_turbo_v2",
+          voice_settings: {
+            stability: 0.4,
+            similarity_boost: 0.9,
+            style: 0.5,
+            use_speaker_boost: true
+          }
+        })
       }
     );
 
@@ -84,14 +87,13 @@ app.post("/process_input", async (req, res) => {
     const twiml = new twilio.twiml.VoiceResponse();
     twiml.play(fileUrl);
 
-    // keep the line open and listen again
-    const gather = twiml.gather({
+    // listen again, no double speaking
+    twiml.gather({
       input: "speech",
       action: "/process_input",
       method: "POST",
-      speechTimeout: "auto",
+      speechTimeout: "auto"
     });
-    gather.say("Please tell me more.");
 
     res.type("text/xml");
     res.send(twiml.toString());
