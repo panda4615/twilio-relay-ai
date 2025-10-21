@@ -34,7 +34,7 @@ wss.on("connection", async (twilioSocket) => {
   console.log("🔗 Twilio connected to WebSocket bridge");
 
   // connect to ElevenLabs realtime
-const elevenLabsUrl = "wss://api.elevenlabs.io/v1/realtime/stream?model=eleven_multilingual_v2";
+const elevenLabsUrl = "wss://api.elevenlabs.io/v1/agents/stream?model=eleven_multilingual_v2";
   const elevenLabsSocket = new WebSocket(elevenLabsUrl, {
     headers: {
       "xi-api-key": process.env.ELEVEN_API_KEY,
