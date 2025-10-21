@@ -1,77 +1,81 @@
+// index.js
 import express from "express";
-import bodyParser from "body-parser";
 import { WebSocketServer } from "ws";
+import bodyParser from "body-parser";
 import twilio from "twilio";
 import fetch from "node-fetch";
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 
-// === Twilio webhook (handles incoming calls) ===
+// Twilio webhook for incoming calls
 app.post("/inbound", async (req, res) => {
   const twiml = new twilio.twiml.VoiceResponse();
 
-  const connect = twiml.connect();
-  connect.stream({
-    url: `wss://${process.env.DOMAIN}/twilio-bridge`,
+  // Initial greeting before ElevenLabs connects
+  twiml.say(
+    { voice: "Polly.Matthew" },
+    "Welcome to Elite Car Service. Connecting you to our virtual assistant now."
+  );
+
+  // Connect to our Render relay websocket
+  twiml.connect().stream({
+    url: "wss://twilio-relay-ai.onrender.com/relay"
   });
 
   res.type("text/xml");
   res.send(twiml.toString());
 });
 
-const PORT = process.env.PORT || 3000;
-const server = app.listen(PORT, () => {
-  console.log(`✅ Twilio relay running on port ${PORT}`);
+// Create HTTP server (Twilio hits this endpoint)
+const server = app.listen(process.env.PORT || 3000, () => {
+  console.log(`✅ Twilio relay running on port ${process.env.PORT || 3000}`);
 });
 
-// === WebSocket Twilio <-> ElevenLabs bridge ===
-const wss = new WebSocketServer({ noServer: true });
+// Create WebSocket relay bridge between Twilio ↔ ElevenLabs
+const wss = new WebSocketServer({ server, path: "/relay" });
 
-server.on("upgrade", (req, socket, head) => {
-  if (req.url === "/twilio-bridge") {
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      console.log("🔗 Twilio WebSocket connected");
+wss.on("connection", (twilioSocket) => {
+  console.log("🔗 Twilio connected to WebSocket bridge");
 
-      // connect to ElevenLabs Realtime API
-      const elevenWs = new WebSocket(
-        "wss://api.elevenlabs.io/v1/convai/ws",
-        {
-          headers: {
-            "xi-api-key": process.env.ELEVEN_API_KEY,
-          },
-        }
-      );
+  const elevenLabsSocket = new WebSocket(
+    "wss://api.elevenlabs.io/v1/realtime/ws?model_id=eleven_multilingual_v2",
+    {
+      headers: {
+        "xi-api-key": process.env.ELEVEN_API_KEY,
+        "Accept": "audio/pcm"
+      }
+    }
+  );
 
-      elevenWs.on("open", () => {
-        console.log("🎤 Connected to ElevenLabs Realtime Voice");
-      });
+  elevenLabsSocket.on("open", () => {
+    console.log("🎤 Connected to ElevenLabs Realtime");
+  });
 
-      // incoming audio from Twilio -> send to ElevenLabs
-      ws.on("message", (msg) => {
-        if (elevenWs.readyState === WebSocket.OPEN) {
-          elevenWs.send(msg);
-        }
-      });
+  elevenLabsSocket.on("message", (msg) => {
+    // Forward ElevenLabs audio back to Twilio
+    if (twilioSocket.readyState === 1) {
+      twilioSocket.send(msg);
+    }
+  });
 
-      // ElevenLabs audio back to Twilio
-      elevenWs.on("message", (audioData) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(audioData);
-        }
-      });
+  twilioSocket.on("message", (msg) => {
+    // Forward Twilio audio to ElevenLabs
+    if (elevenLabsSocket.readyState === 1) {
+      elevenLabsSocket.send(msg);
+    }
+  });
 
-      // clean up
-      ws.on("close", () => {
-        console.log("❌ Twilio stream closed");
-        elevenWs.close();
-      });
-      elevenWs.on("close", () => {
-        console.log("🔇 ElevenLabs disconnected");
-        ws.close();
-      });
-    });
-  } else {
-    socket.destroy();
-  }
+  twilioSocket.on("close", () => {
+    console.log("❌ Twilio WebSocket closed");
+    elevenLabsSocket.close();
+  });
+
+  elevenLabsSocket.on("close", () => {
+    console.log("❌ ElevenLabs WebSocket closed");
+    twilioSocket.close();
+  });
+
+  elevenLabsSocket.on("error", (err) => console.error("⚠️ ElevenLabs Error:", err));
+  twilioSocket.on("error", (err) => console.error("⚠️ Twilio Error:", err));
 });
