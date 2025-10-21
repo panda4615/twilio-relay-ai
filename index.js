@@ -1,13 +1,13 @@
 import express from "express";
 import bodyParser from "body-parser";
-import WebSocket, { WebSocketServer } from "ws";
 import twilio from "twilio";
+import WebSocket, { WebSocketServer } from "ws";
 import fetch from "node-fetch";
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 
-// Twilio inbound webhook
+// Twilio Webhook
 app.post("/inbound", async (req, res) => {
   const twiml = new twilio.twiml.VoiceResponse();
   const connect = twiml.connect();
@@ -22,7 +22,6 @@ const server = app.listen(process.env.PORT || 3000, () => {
 
 const wss = new WebSocketServer({ noServer: true });
 
-// handle websocket upgrades (Twilio <-> ElevenLabs)
 server.on("upgrade", (req, socket, head) => {
   if (req.url === "/twilio-bridge") {
     wss.handleUpgrade(req, socket, head, (ws) => {
@@ -35,42 +34,54 @@ wss.on("connection", async (twilioSocket) => {
   console.log("🔗 Twilio connected to WebSocket bridge");
 
   // connect to ElevenLabs realtime
-  const elevenLabsSocket = new WebSocket(
-    "wss://api.elevenlabs.io/v1/realtime?model=eleven_multilingual_v2",
-    {
-      headers: {
-        "xi-api-key": process.env.ELEVEN_API_KEY,
-        "Accept": "audio/pcm",
-      },
-    }
-  );
-
-  elevenLabsSocket.on("open", () => {
-    console.log("🎤 Connected to ElevenLabs Realtime");
+  const elevenLabsUrl = "wss://api.elevenlabs.io/v1/realtime?model=eleven_multilingual_v2";
+  const elevenLabsSocket = new WebSocket(elevenLabsUrl, {
+    headers: {
+      "xi-api-key": process.env.ELEVEN_API_KEY,
+      "Accept": "audio/pcm",
+    },
   });
 
-  elevenLabsSocket.on("message", (msg) => {
-    if (twilioSocket.readyState === WebSocket.OPEN) {
-      twilioSocket.send(msg);
-    }
-  });
+  elevenLabsSocket.onopen = () => {
+    console.log("🎤 Connected to ElevenLabs Realtime API");
+  };
 
-  elevenLabsSocket.on("close", () => {
-    console.log("❌ ElevenLabs connection closed");
-  });
+  elevenLabsSocket.onerror = (error) => {
+    console.error("🚨 ElevenLabs connection error:", error.message);
+  };
 
-  elevenLabsSocket.on("error", (err) => {
-    console.error("⚠️ ElevenLabs error:", err.message);
-  });
+  elevenLabsSocket.onclose = () => {
+    console.log("❌ ElevenLabs WebSocket closed");
+  };
 
+  // Forward messages from Twilio → ElevenLabs
   twilioSocket.on("message", (msg) => {
-    if (elevenLabsSocket.readyState === WebSocket.OPEN) {
-      elevenLabsSocket.send(msg);
+    try {
+      if (elevenLabsSocket.readyState === WebSocket.OPEN) {
+        elevenLabsSocket.send(msg);
+      }
+    } catch (err) {
+      console.error("⚠️ Error forwarding Twilio → ElevenLabs:", err.message);
     }
   });
+
+  // Forward messages from ElevenLabs → Twilio
+  elevenLabsSocket.onmessage = (event) => {
+    try {
+      if (twilioSocket.readyState === WebSocket.OPEN) {
+        twilioSocket.send(event.data);
+      }
+    } catch (err) {
+      console.error("⚠️ Error forwarding ElevenLabs → Twilio:", err.message);
+    }
+  };
 
   twilioSocket.on("close", () => {
     console.log("❌ Twilio socket closed");
     elevenLabsSocket.close();
   });
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("💥 Uncaught Exception:", err);
 });
