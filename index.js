@@ -13,7 +13,7 @@ app.post("/inbound", async (req, res) => {
   const prompt = "Hello! Thanks for calling Elite Car Service. How can I assist you today?";
 
   try {
-    const elevenRes = await fetch("https://api.elevenlabs.io/v1/text-to-speech/EXAVITQu4vr4xnSDxMaL", {
+const elevenRes = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${process.env.ELEVEN_VOICE_ID}`, {
       method: "POST",
       headers: {
         "xi-api-key": process.env.ELEVEN_API_KEY,
