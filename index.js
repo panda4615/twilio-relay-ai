@@ -1,87 +1,52 @@
 import express from "express";
 import bodyParser from "body-parser";
 import twilio from "twilio";
-import WebSocket, { WebSocketServer } from "ws";
 import fetch from "node-fetch";
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 
-// Twilio Webhook
+// Twilio credentials (auto from Render env)
+const VoiceResponse = twilio.twiml.VoiceResponse;
+
+// POST endpoint Twilio hits when call starts
 app.post("/inbound", async (req, res) => {
-  const twiml = new twilio.twiml.VoiceResponse();
-  const connect = twiml.connect();
-  connect.stream({ url: `wss://${process.env.DOMAIN}/twilio-bridge` });
-  res.type("text/xml");
-  res.send(twiml.toString());
-});
+  const twiml = new VoiceResponse();
 
-const server = app.listen(process.env.PORT || 3000, () => {
-  console.log(`✅ Twilio relay running on port ${process.env.PORT || 3000}`);
-});
+  // Simple voice greeting logic (customize this however you want)
+  const prompt = "Hello! Thanks for calling Elite Car Service. How can I assist you today?";
 
-const wss = new WebSocketServer({ noServer: true });
-
-server.on("upgrade", (req, socket, head) => {
-  if (req.url === "/twilio-bridge") {
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      wss.emit("connection", ws, req);
+  try {
+    // call ElevenLabs TTS REST API (works on Creator plan)
+    const elevenRes = await fetch("https://api.elevenlabs.io/v1/text-to-speech/EXAVITQu4vr4xnSDxMaL", {
+      method: "POST",
+      headers: {
+        "xi-api-key": process.env.ELEVEN_API_KEY,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        text: prompt,
+        model_id: "eleven_multilingual_v2",
+        voice_settings: { stability: 0.5, similarity_boost: 0.8 }
+      })
     });
+
+    const audioBuffer = await elevenRes.arrayBuffer();
+    const base64Audio = Buffer.from(audioBuffer).toString("base64");
+
+    // tell Twilio to play the response
+    const play = twiml.play();
+    play.audio(`data:audio/mp3;base64,${base64Audio}`);
+
+    res.type("text/xml");
+    res.send(twiml.toString());
+  } catch (err) {
+    console.error("TTS error:", err);
+    twiml.say("Sorry, something went wrong. Please try again later.");
+    res.type("text/xml");
+    res.send(twiml.toString());
   }
 });
 
-wss.on("connection", async (twilioSocket) => {
-  console.log("🔗 Twilio connected to WebSocket bridge");
-
-  // connect to ElevenLabs realtime
-const elevenLabsUrl = "wss://api.elevenlabs.io/v1/agents/stream?model=eleven_multilingual_v2";
-  const elevenLabsSocket = new WebSocket(elevenLabsUrl, {
-    headers: {
-      "xi-api-key": process.env.ELEVEN_API_KEY,
-      "Accept": "audio/pcm",
-    },
-  });
-
-  elevenLabsSocket.onopen = () => {
-    console.log("🎤 Connected to ElevenLabs Realtime API");
-  };
-
-  elevenLabsSocket.onerror = (error) => {
-    console.error("🚨 ElevenLabs connection error:", error.message);
-  };
-
-  elevenLabsSocket.onclose = () => {
-    console.log("❌ ElevenLabs WebSocket closed");
-  };
-
-  // Forward messages from Twilio → ElevenLabs
-  twilioSocket.on("message", (msg) => {
-    try {
-      if (elevenLabsSocket.readyState === WebSocket.OPEN) {
-        elevenLabsSocket.send(msg);
-      }
-    } catch (err) {
-      console.error("⚠️ Error forwarding Twilio → ElevenLabs:", err.message);
-    }
-  });
-
-  // Forward messages from ElevenLabs → Twilio
-  elevenLabsSocket.onmessage = (event) => {
-    try {
-      if (twilioSocket.readyState === WebSocket.OPEN) {
-        twilioSocket.send(event.data);
-      }
-    } catch (err) {
-      console.error("⚠️ Error forwarding ElevenLabs → Twilio:", err.message);
-    }
-  };
-
-  twilioSocket.on("close", () => {
-    console.log("❌ Twilio socket closed");
-    elevenLabsSocket.close();
-  });
-});
-
-process.on("uncaughtException", (err) => {
-  console.error("💥 Uncaught Exception:", err);
-});
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
