@@ -6,18 +6,13 @@ import fetch from "node-fetch";
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 
-// Twilio credentials (auto from Render env)
 const VoiceResponse = twilio.twiml.VoiceResponse;
 
-// POST endpoint Twilio hits when call starts
 app.post("/inbound", async (req, res) => {
   const twiml = new VoiceResponse();
-
-  // Simple voice greeting logic (customize this however you want)
   const prompt = "Hello! Thanks for calling Elite Car Service. How can I assist you today?";
 
   try {
-    // call ElevenLabs TTS REST API (works on Creator plan)
     const elevenRes = await fetch("https://api.elevenlabs.io/v1/text-to-speech/EXAVITQu4vr4xnSDxMaL", {
       method: "POST",
       headers: {
@@ -31,12 +26,12 @@ app.post("/inbound", async (req, res) => {
       })
     });
 
+    if (!elevenRes.ok) throw new Error(`TTS request failed: ${elevenRes.status}`);
     const audioBuffer = await elevenRes.arrayBuffer();
     const base64Audio = Buffer.from(audioBuffer).toString("base64");
 
-    // tell Twilio to play the response
-    const play = twiml.play();
-    play.audio(`data:audio/mp3;base64,${base64Audio}`);
+    // fixed line below
+    twiml.play(`data:audio/mp3;base64,${base64Audio}`);
 
     res.type("text/xml");
     res.send(twiml.toString());
