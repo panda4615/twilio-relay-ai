@@ -1,16 +1,20 @@
 {
-  "name": "twilio-elevenlabs-relay",
+  "name": "twilio-relay-ai",
   "version": "1.0.0",
+  "description": "Twilio to ElevenLabs voice relay server",
   "main": "index.js",
   "type": "module",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "express": "^4.19.2",
     "body-parser": "^1.20.2",
-    "ws": "^8.17.1",
-    "twilio": "^4.22.0",
-    "node-fetch": "^3.3.2"
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.18.2",
+    "fs": "0.0.1-security",
+    "node-fetch": "^3.3.2",
+    "path": "^0.12.7",
+    "twilio": "^4.21.0"
   }
 }
