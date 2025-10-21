@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: twilio-relay
+    name: twilio-relay-ai
     env: node
     plan: free
     buildCommand: "npm install"
@@ -8,5 +8,5 @@ services:
     envVars:
       - key: ELEVEN_API_KEY
         sync: false
-      - key: DOMAIN
+      - key: PORT
         sync: false
