@@ -15,22 +15,18 @@ app.use(cors());
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
-// Static folder to serve audio files
 app.use("/audio", express.static("/tmp"));
 
-// Root endpoint
 app.get("/", (req, res) => {
-  res.send("✅ Twilio Relay + ElevenLabs server is running");
+  res.send("✅ Twilio Relay + ElevenLabs voice server is live");
 });
 
-// Twilio webhook for incoming calls
+// first greeting
 app.post("/inbound", (req, res) => {
   console.log("🔔 Incoming call received");
 
   const twiml = new twilio.twiml.VoiceResponse();
-  twiml.say(
-    "Hola, bienvenido a Elite Car Service. How can we help you today?"
-  );
+  twiml.say("Hola, bienvenido a Elite Car Service. How can we help you today?");
 
   twiml.gather({
     input: "speech",
@@ -43,16 +39,14 @@ app.post("/inbound", (req, res) => {
   res.send(twiml.toString());
 });
 
-// Process speech input from user and reply
+// handle user speech, respond, and continue loop
 app.post("/process_input", async (req, res) => {
   const speech = req.body.SpeechResult || "nothing detected";
   console.log("🎧 User said:", speech);
 
-  // simple response logic (you can expand this later with AI)
-  const reply = `Thanks for your message. You said, ${speech}. Our driver service is available 24 7. Would you like to schedule a ride?`;
+  const reply = decideReply(speech);
 
   try {
-    // generate ElevenLabs TTS
     const ttsRes = await fetch(
       `https://api.elevenlabs.io/v1/text-to-speech/${process.env.ELEVEN_VOICE_ID}?model_id=eleven_multilingual_v2`,
       {
@@ -89,7 +83,16 @@ app.post("/process_input", async (req, res) => {
 
     const twiml = new twilio.twiml.VoiceResponse();
     twiml.play(fileUrl);
-    twiml.say("Goodbye.");
+
+    // keep the line open and listen again
+    const gather = twiml.gather({
+      input: "speech",
+      action: "/process_input",
+      method: "POST",
+      speechTimeout: "auto",
+    });
+    gather.say("Please tell me more.");
+
     res.type("text/xml");
     res.send(twiml.toString());
   } catch (error) {
@@ -101,7 +104,23 @@ app.post("/process_input", async (req, res) => {
   }
 });
 
-// start server
+function decideReply(speech) {
+  const text = speech.toLowerCase();
+  if (text.includes("book") || text.includes("ride")) {
+    return "Sure! I can help you schedule your ride. What time would you like to be picked up?";
+  } else if (text.includes("price") || text.includes("cost")) {
+    return "Our rides start at forty five dollars for cross border trips. Would you like a quote?";
+  } else if (text.includes("tijuana")) {
+    return "We go to Tijuana, Rosarito, and Valle de Guadalupe every day. Which destination are you heading to?";
+  } else if (text.includes("thank")) {
+    return "You're very welcome! Anything else I can help you with?";
+  } else if (text.includes("bye")) {
+    return "Adiós amigo, have a great day!";
+  } else {
+    return "Got it. Can you tell me a little more?";
+  }
+}
+
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
 });
