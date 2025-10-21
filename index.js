@@ -1,43 +1,42 @@
-// index.js
 import express from "express";
 import bodyParser from "body-parser";
-import { WebSocketServer, WebSocket } from "ws";
+import WebSocket, { WebSocketServer } from "ws";
 import twilio from "twilio";
-import { Buffer } from "buffer";
+import fetch from "node-fetch";
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 
-// === 1. Twilio webhook ===
+// Twilio inbound webhook
 app.post("/inbound", async (req, res) => {
   const twiml = new twilio.twiml.VoiceResponse();
-
-  twiml.say(
-    { voice: "Polly.Matthew" },
-    "Welcome to Elite Car Service. Please hold while we connect you to our AI receptionist."
-  );
-
   const connect = twiml.connect();
-  connect.stream({ url: "wss://twilio-relay-ai.onrender.com/relay" });
-
+  connect.stream({ url: `wss://${process.env.DOMAIN}/twilio-bridge` });
   res.type("text/xml");
   res.send(twiml.toString());
 });
 
-// === 2. start server ===
-const PORT = process.env.PORT || 3000;
-const server = app.listen(PORT, () => {
-  console.log(`✅ Twilio relay running on port ${PORT}`);
+const server = app.listen(process.env.PORT || 3000, () => {
+  console.log(`✅ Twilio relay running on port ${process.env.PORT || 3000}`);
 });
 
-// === 3. Twilio <-> ElevenLabs bridge ===
-const wss = new WebSocketServer({ server, path: "/relay" });
+const wss = new WebSocketServer({ noServer: true });
 
-wss.on("connection", (twilioSocket) => {
+// handle websocket upgrades (Twilio <-> ElevenLabs)
+server.on("upgrade", (req, socket, head) => {
+  if (req.url === "/twilio-bridge") {
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit("connection", ws, req);
+    });
+  }
+});
+
+wss.on("connection", async (twilioSocket) => {
   console.log("🔗 Twilio connected to WebSocket bridge");
 
+  // connect to ElevenLabs realtime
   const elevenLabsSocket = new WebSocket(
-    "wss://api.elevenlabs.io/v1/realtime/ws?model_id=eleven_multilingual_v2",
+    "wss://api.elevenlabs.io/v1/realtime?model=eleven_multilingual_v2",
     {
       headers: {
         "xi-api-key": process.env.ELEVEN_API_KEY,
@@ -46,58 +45,32 @@ wss.on("connection", (twilioSocket) => {
     }
   );
 
-  elevenLabsSocket.addEventListener("open", () => {
+  elevenLabsSocket.on("open", () => {
     console.log("🎤 Connected to ElevenLabs Realtime");
-
-    // optional: greeting from AI voice
-    const initMsg = JSON.stringify({
-      type: "conversation_initiation",
-      conversation: {
-        text: "Hello, this is Elite Car Service. How can I assist you today?",
-        voice: "Rachel",
-      },
-    });
-    elevenLabsSocket.send(initMsg);
   });
 
-  // === Twilio → ElevenLabs ===
-  twilioSocket.on("message", (msg) => {
-    try {
-      const data = JSON.parse(msg.toString());
-      if (data.event === "media" && data.media?.payload) {
-        const audio = Buffer.from(data.media.payload, "base64");
-        if (elevenLabsSocket.readyState === WebSocket.OPEN) {
-          elevenLabsSocket.send(audio);
-        }
-      }
-    } catch (err) {
-      console.error("⚠️ Twilio message parse error:", err.message);
-    }
-  });
-
-  // === ElevenLabs → Twilio ===
-  elevenLabsSocket.addEventListener("message", (event) => {
+  elevenLabsSocket.on("message", (msg) => {
     if (twilioSocket.readyState === WebSocket.OPEN) {
-      twilioSocket.send(event.data);
+      twilioSocket.send(msg);
     }
   });
 
-  // === cleanup & errors ===
-  twilioSocket.on("close", () => {
-    console.log("❌ Twilio socket closed");
-    elevenLabsSocket.close();
+  elevenLabsSocket.on("close", () => {
+    console.log("❌ ElevenLabs connection closed");
   });
 
-  elevenLabsSocket.addEventListener("close", () => {
-    console.log("🔇 ElevenLabs socket closed");
-    twilioSocket.close();
-  });
-
-  elevenLabsSocket.addEventListener("error", (err) => {
+  elevenLabsSocket.on("error", (err) => {
     console.error("⚠️ ElevenLabs error:", err.message);
   });
 
-  twilioSocket.on("error", (err) => {
-    console.error("⚠️ Twilio error:", err.message);
+  twilioSocket.on("message", (msg) => {
+    if (elevenLabsSocket.readyState === WebSocket.OPEN) {
+      elevenLabsSocket.send(msg);
+    }
+  });
+
+  twilioSocket.on("close", () => {
+    console.log("❌ Twilio socket closed");
+    elevenLabsSocket.close();
   });
 });
